@@ -145,6 +145,7 @@ def train(model, optimizer, scheduler, dataset, start, length):
         Cwid, Ccid, Qwid, Qcid, y1, y2, ids = dataset[i]
         Cwid, Ccid, Qwid, Qcid = Cwid.to(device), Ccid.to(device), Qwid.to(device), Qcid.to(device)
         p1, p2 = model(Cwid, Ccid, Qwid, Qcid)
+        #print(p1[0][y1[0].item()], p2[0][y2[0].item()])
         y1, y2 = y1.to(device), y2.to(device)
         loss1 = F.nll_loss(p1, y1)
         loss2 = F.nll_loss(p2, y2)
@@ -153,6 +154,10 @@ def train(model, optimizer, scheduler, dataset, start, length):
         loss.backward()
         optimizer.step()
         scheduler.step()
+        #for name, param in model.named_parameters():
+        #    if param.requires_grad and name=='out.w1':
+        #        print(name, param.data)
+        #print("STEP {:8d} loss {:8f}\n".format(0, loss.item()))
     loss_avg = np.mean(losses)
     print("STEP {:8d} loss {:8f}\n".format(i + 1, loss_avg))
 
@@ -221,13 +226,14 @@ def train_entry(config):
     dev_dataset = SQuADDataset(config.dev_record_file, -1, config.batch_size)
 
     lr = config.learning_rate
-    base_lr = 1.0
+    base_lr = 1
     lr_warm_up_num = config.lr_warm_up_num
 
     model = QANet(word_mat, char_mat).to(device)
     parameters = filter(lambda param: param.requires_grad, model.parameters())
     optimizer = optim.Adam(lr=base_lr, betas=(0.8, 0.999), eps=1e-7, weight_decay=3e-7, params=parameters)
-    # optimizer = optim.SparseAdam(lr=lr, betas=(0.8, 0.999), eps=1e-7, params=parameters)
+    #optimizer = optim.SparseAdam(lr=lr, betas=(0.8, 0.999), eps=1e-7, params=parameters)
+    #optimizer = optim.Adam(params=parameters)
     cr = lr / math.log2(lr_warm_up_num)
     scheduler = optim.lr_scheduler.LambdaLR(
         optimizer,
