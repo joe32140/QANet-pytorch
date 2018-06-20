@@ -196,20 +196,20 @@ class Pointer(nn.Module):
         w2 = torch.empty(D * 2)
         nn.init.uniform_(w1, -0.5, 0.5)
         nn.init.uniform_(w2, -0.5, 0.5)
-        self.w1 = nn.Parameter(w1)
-        self.w2 = nn.Parameter(w2)
+        #self.w1 = nn.Parameter(w1)
+        #self.w2 = nn.Parameter(w2)
 
     def forward(self, M1, M2, M3, mask):
         X1 = torch.cat([M1, M2], dim=1)
         X2 = torch.cat([M1, M3], dim=1)
+        print("X1", X1.size())
         Y1 = torch.matmul(self.w1, X1) * mask
+        print("Y1", Y1.size())
         Y2 = torch.matmul(self.w2, X2) * mask
         min1, _ = torch.min(Y1, 1, keepdim=True)
         min2, _ = torch.min(Y2, 1, keepdim=True)
-        max1, _ = torch.max(Y1, 1, keepdim=True)
-        max2, _ = torch.max(Y2, 1, keepdim=True)
-        Y1 = (Y1 - min1) / (max1 - min1) * mask
-        Y2 = (Y2 - min2) / (max2 - min2) * mask
+        Y1 = (Y1 - min1 +1.0) * mask
+        Y2 = (Y2 - min2+1.0) * mask
         p1 = F.log_softmax(Y1, dim=1)
         p2 = F.log_softmax(Y2, dim=1)
         return p1, p2
@@ -238,13 +238,21 @@ class QANet(nn.Module):
         mask = (torch.zeros_like(Cwid) != Cwid).float()
         Cw, Cc = self.word_emb(Cwid), self.char_emb(Ccid)
         Qw, Qc = self.word_emb(Qwid), self.char_emb(Qcid)
+        print("Cw",Cw.size())
+        print("Cc",Cc.size())
         C, Q = self.emb(Cc, Cw), self.emb(Qc, Qw)
+        print("C",C.size())
         Ce = self.c_emb_enc(C)
+        print("Ce",Ce.size())
         Qe = self.q_emb_enc(Q)
         X = self.cq_att(Ce, Qe)
+        print("X",X.size())
         M0 = self.cq_resizer(X)
+        print("M0",M0.size())
         M1 = self.model_enc_blks(M0)
+        print("M1",M1.size())
         M2 = self.model_enc_blks(M1)
+        print("M2",M2.size())
         M3 = self.model_enc_blks(M2)
         p1, p2 = self.out(M1, M2, M3, mask)
         return p1, p2
