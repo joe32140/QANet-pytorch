@@ -142,10 +142,11 @@ def train(model, optimizer, scheduler, dataset, start, length):
     losses = []
     for i in tqdm(range(start, length + start), total=length):
         optimizer.zero_grad()
-        Cwid, Ccid, Qwid, Qcid, y1, y2, ids = dataset[i]
+        Cwid, Ccid, Qwid, Qcid, y1, y2, ids = dataset[0]
         Cwid, Ccid, Qwid, Qcid = Cwid.to(device), Ccid.to(device), Qwid.to(device), Qcid.to(device)
         p1, p2 = model(Cwid, Ccid, Qwid, Qcid)
-        #print(p1[0][y1[0].item()], p2[0][y2[0].item()])
+        print(y1[0], y2[0])
+        print(p1[0][:y1[0].item()+1], p2[0][:y2[0].item()+1])
         y1, y2 = y1.to(device), y2.to(device)
         loss1 = F.nll_loss(p1, y1)
         loss2 = F.nll_loss(p2, y2)
@@ -157,7 +158,7 @@ def train(model, optimizer, scheduler, dataset, start, length):
         #for name, param in model.named_parameters():
         #    if param.requires_grad and name=='out.w1':
         #        print(name, param.data)
-        #print("STEP {:8d} loss {:8f}\n".format(0, loss.item()))
+        print("STEP {:8d} loss {:8f}\n".format(0, loss.item()))
     loss_avg = np.mean(losses)
     print("STEP {:8d} loss {:8f}\n".format(i + 1, loss_avg))
 
@@ -226,7 +227,7 @@ def train_entry(config):
     dev_dataset = SQuADDataset(config.dev_record_file, -1, config.batch_size)
 
     lr = config.learning_rate
-    base_lr = 1
+    base_lr = 0.003
     lr_warm_up_num = config.lr_warm_up_num
 
     model = QANet(word_mat, char_mat).to(device)
@@ -253,7 +254,7 @@ def train_entry(config):
             unused = False
         if config.print_weight:
             print_weight(model, 5, iter + L)
-        print(scheduler.get_lr())
+        print("Current learning_rate:", scheduler.get_lr())
         dev_f1 = metrics["f1"]
         dev_em = metrics["exact_match"]
         if dev_f1 < best_f1 and dev_em < best_em:
