@@ -77,9 +77,9 @@ class SelfAttention(nn.Module):
         Wvs = [torch.empty(D, Dv) for _ in range(Nh)]
         nn.init.kaiming_uniform_(Wo)
         for i in range(Nh):
-            nn.init.kaiming_uniform_(Wqs[i])
-            nn.init.kaiming_uniform_(Wks[i])
-            nn.init.kaiming_uniform_(Wvs[i])
+            nn.init.xavier_uniform_(Wqs[i])
+            nn.init.xavier_uniform_(Wks[i])
+            nn.init.xavier_uniform_(Wvs[i])
         self.Wo = nn.Parameter(Wo)
         self.Wqs = nn.ParameterList([nn.Parameter(X) for X in Wqs])
         self.Wks = nn.ParameterList([nn.Parameter(X) for X in Wks])
@@ -136,6 +136,7 @@ class EncoderBlock(nn.Module):
         self.fc = nn.Linear(ch_num, ch_num, bias=True)
         self.pos = PosEncoder(length)
         self.norm = nn.LayerNorm([D, length])
+        self.L = conv_num
 
     def forward(self, x):
         out = self.pos(x)
@@ -146,7 +147,8 @@ class EncoderBlock(nn.Module):
             out = F.relu(out)
             out = out + res
             if (i + 1) % 2 == 0:
-                out = F.dropout(out, p=dropout, training=self.training)
+                p_drop = dropout * (i+1) / self.L
+                out = F.dropout(out, p=p_drop, training=self.training)
             res = out
             out = self.norm(out)
         out = self.self_att(out)
@@ -165,7 +167,8 @@ class CQAttention(nn.Module):
     def __init__(self):
         super().__init__()
         w = torch.empty(D * 3)
-        nn.init.uniform_(w, -0.5, 0.5)
+        lim = 1/D
+        nn.init.uniform_(w, -math.sqrt(lim), math.sqrt(lim))
         self.w = nn.Parameter(w)
 
     def forward(self, C, Q):
@@ -194,24 +197,34 @@ class Pointer(nn.Module):
         super().__init__()
         w1 = torch.empty(D * 2)
         w2 = torch.empty(D * 2)
-        nn.init.uniform_(w1, -0.5, 0.5)
-        nn.init.uniform_(w2, -0.5, 0.5)
-        #self.w1 = nn.Parameter(w1)
-        #self.w2 = nn.Parameter(w2)
+        lim = 3/(2*D)
+        nn.init.uniform_(w1, -math.sqrt(lim), math.sqrt(lim))
+        nn.init.uniform_(w2, -math.sqrt(lim), math.sqrt(lim))
+        self.w1 = nn.Parameter(w1)
+        self.w2 = nn.Parameter(w2)
+        #self.w1 = nn.Linear(D*2,1)
+        #self.w2 = nn.Linear(D*2,1)
 
     def forward(self, M1, M2, M3, mask):
         X1 = torch.cat([M1, M2], dim=1)
         X2 = torch.cat([M1, M3], dim=1)
-        print("X1", X1.size())
-        Y1 = torch.matmul(self.w1, X1) * mask
-        print("Y1", Y1.size())
-        Y2 = torch.matmul(self.w2, X2) * mask
-        min1, _ = torch.min(Y1, 1, keepdim=True)
-        min2, _ = torch.min(Y2, 1, keepdim=True)
-        Y1 = (Y1 - min1 +1.0) * mask
-        Y2 = (Y2 - min2+1.0) * mask
+
+        #Y1 = self.w1(X1.transpose(1,2)).squeeze()*mask
+        #Y2 = self.w2(X2.transpose(1,2)).squeeze()*mask
+
+        Y1 = torch.matmul(self.w1, X1)*mask
+        Y2 = torch.matmul(self.w2, X2)*mask
+        #min1, _ = torch.min(Y1, 1, keepdim=True)
+        #min2, _ = torch.min(Y2, 1, keepdim=True)
+        #Y1 = (Y1 - min1 + 1.0) * mask
+        #Y2 = (Y2 - min2 + 1.0) * mask
+
         p1 = F.log_softmax(Y1, dim=1)
         p2 = F.log_softmax(Y2, dim=1)
+        # Y1 = torch.matmul(self.w1, X1)
+        # Y2 = torch.matmul(self.w2, X2)
+        # p1 = F.softmax(Y1, dim=1) * mask
+        # p2 = F.softmax(Y2, dim=1) * mask
         return p1, p2
 
 
@@ -222,7 +235,7 @@ class QANet(nn.Module):
             self.char_emb = nn.Embedding.from_pretrained(torch.Tensor(char_mat))
         else:
             char_mat = torch.Tensor(char_mat)
-            nn.init.kaiming_uniform_(char_mat)
+            # nn.init.kaiming_uniform_(char_mat)
             self.char_emb = nn.Embedding.from_pretrained(char_mat, freeze=False)
         self.word_emb = nn.Embedding.from_pretrained(torch.Tensor(word_mat))
         self.emb = Embedding()
@@ -238,21 +251,13 @@ class QANet(nn.Module):
         mask = (torch.zeros_like(Cwid) != Cwid).float()
         Cw, Cc = self.word_emb(Cwid), self.char_emb(Ccid)
         Qw, Qc = self.word_emb(Qwid), self.char_emb(Qcid)
-        print("Cw",Cw.size())
-        print("Cc",Cc.size())
         C, Q = self.emb(Cc, Cw), self.emb(Qc, Qw)
-        print("C",C.size())
         Ce = self.c_emb_enc(C)
-        print("Ce",Ce.size())
         Qe = self.q_emb_enc(Q)
         X = self.cq_att(Ce, Qe)
-        print("X",X.size())
         M0 = self.cq_resizer(X)
-        print("M0",M0.size())
         M1 = self.model_enc_blks(M0)
-        print("M1",M1.size())
         M2 = self.model_enc_blks(M1)
-        print("M2",M2.size())
         M3 = self.model_enc_blks(M2)
         p1, p2 = self.out(M1, M2, M3, mask)
         return p1, p2

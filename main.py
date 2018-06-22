@@ -1,5 +1,5 @@
 from config import config, device
-from preproc import preproc
+from preproc_ch import preproc
 from absl import app
 import math
 import os
@@ -15,7 +15,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.cuda
 from torch.utils.data import Dataset
-
+from tensorboardX import SummaryWriter
+import pickle
+writer = SummaryWriter(log_dir='./log')
 '''
 Some functions are from the official evaluation script.
 '''
@@ -86,10 +88,8 @@ def evaluate(eval_file, answer_dict):
         total += 1
         ground_truths = eval_file[key]["answers"]
         prediction = value
-        exact_match += metric_max_over_ground_truths(
-            exact_match_score, prediction, ground_truths)
-        f1 += metric_max_over_ground_truths(f1_score,
-                                            prediction, ground_truths)
+        exact_match += metric_max_over_ground_truths(exact_match_score, prediction, ground_truths)
+        f1 += metric_max_over_ground_truths(f1_score, prediction, ground_truths)
     exact_match = 100.0 * exact_match / total
     f1 = 100.0 * f1 / total
     return {'exact_match': exact_match, 'f1': f1}
@@ -142,23 +142,31 @@ def train(model, optimizer, scheduler, dataset, start, length):
     losses = []
     for i in tqdm(range(start, length + start), total=length):
         optimizer.zero_grad()
-        Cwid, Ccid, Qwid, Qcid, y1, y2, ids = dataset[0]
+        Cwid, Ccid, Qwid, Qcid, y1, y2, ids = dataset[i]
         Cwid, Ccid, Qwid, Qcid = Cwid.to(device), Ccid.to(device), Qwid.to(device), Qcid.to(device)
         p1, p2 = model(Cwid, Ccid, Qwid, Qcid)
-        print(y1[0], y2[0])
-        print(p1[0][:y1[0].item()+1], p2[0][:y2[0].item()+1])
+        #print(y1[1], y2[1])
+        #print(p1[1][:y1[1].item()+1], p2[1][:y2[1].item()+1])
         y1, y2 = y1.to(device), y2.to(device)
         loss1 = F.nll_loss(p1, y1)
+        #print("loss1", loss1.item())
+        writer.add_scalar('data/loss1', loss1.item(), i)
         loss2 = F.nll_loss(p2, y2)
+        writer.add_scalar('data/loss2', loss2.item(), i)
+        #print("loss2", loss2.item())
         loss = loss1 + loss2
+        writer.add_scalar('data/loss', loss.item(), i)
         losses.append(loss.item())
         loss.backward()
         optimizer.step()
-        scheduler.step()
+        #scheduler.step()
         #for name, param in model.named_parameters():
         #    if param.requires_grad and name=='out.w1':
         #        print(name, param.data)
-        print("STEP {:8d} loss {:8f}\n".format(0, loss.item()))
+        #print("STEP {:8d} loss {:8f}\n".format(i, loss.item()))
+        for param_group in optimizer.param_groups:
+            #print("Learning:", param_group['lr'])
+            writer.add_scalar('data/lr', param_group['lr'], i)
     loss_avg = np.mean(losses)
     print("STEP {:8d} loss {:8f}\n".format(i + 1, loss_avg))
 
@@ -214,47 +222,48 @@ def print_weight(model, N, idx):
 def train_entry(config):
     from models import QANet
 
-    with open(config.word_emb_file, "r") as fh:
-        word_mat = np.array(json.load(fh), dtype=np.float32)
-    with open(config.char_emb_file, "r") as fh:
-        char_mat = np.array(json.load(fh), dtype=np.float32)
+    with open(config.word_emb_file, "rb") as fh:
+        word_mat = np.array(pickle.load(fh), dtype=np.float32)
+    with open(config.char_emb_file, "rb") as fh:
+        char_mat = np.array(pickle.load(fh), dtype=np.float32)
     with open(config.dev_eval_file, "r") as fh:
         dev_eval_file = json.load(fh)
 
     print("Building model...")
 
     train_dataset = SQuADDataset(config.train_record_file, config.num_steps, config.batch_size)
-    dev_dataset = SQuADDataset(config.dev_record_file, -1, config.batch_size)
+    dev_dataset = SQuADDataset(config.dev_record_file, config.val_num_batches, config.batch_size)
 
     lr = config.learning_rate
-    base_lr = 0.003
+    base_lr = 1
     lr_warm_up_num = config.lr_warm_up_num
 
     model = QANet(word_mat, char_mat).to(device)
     parameters = filter(lambda param: param.requires_grad, model.parameters())
-    optimizer = optim.Adam(lr=base_lr, betas=(0.8, 0.999), eps=1e-7, weight_decay=3e-7, params=parameters)
+    #optimizer = optim.Adam(lr=base_lr, betas=(0.8, 0.999), eps=1e-7, weight_decay=3e-7, params=parameters)
     #optimizer = optim.SparseAdam(lr=lr, betas=(0.8, 0.999), eps=1e-7, params=parameters)
-    #optimizer = optim.Adam(params=parameters)
-    cr = lr / math.log2(lr_warm_up_num)
-    scheduler = optim.lr_scheduler.LambdaLR(
-        optimizer,
-        lr_lambda=lambda ee: cr * math.log2(ee + 1) if ee < lr_warm_up_num else lr)
+    optimizer = optim.Adam(lr=lr, params=parameters)
+    #cr = lr / math.log2(lr_warm_up_num)
+    #scheduler = optim.lr_scheduler.LambdaLR(
+    #    optimizer,
+    #    lr_lambda=lambda ee: cr * math.log2(ee + 1) if ee < lr_warm_up_num else lr)
+    scheduler=''
     L = config.checkpoint
     N = config.num_steps
     best_f1 = 0
     best_em = 0
     patience = 0
-    unused = True
+    unused = False
     for iter in range(0, N, L):
         train(model, optimizer, scheduler, train_dataset, iter, L)
         metrics = test(model, dev_dataset, dev_eval_file)
         if iter + L >= lr_warm_up_num - 1 and unused:
             optimizer.param_groups[0]['initial_lr'] = lr
-            scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.9999)
+            scheduler = optim.lr_scheduler.ExponentialLR(optimizer, 0.99997)
             unused = False
         if config.print_weight:
             print_weight(model, 5, iter + L)
-        print("Current learning_rate:", scheduler.get_lr())
+        #print("Learning rate: {}".format(scheduler.get_lr()))
         dev_f1 = metrics["f1"]
         dev_em = metrics["exact_match"]
         if dev_f1 < best_f1 and dev_em < best_em:
@@ -266,12 +275,17 @@ def train_entry(config):
             best_f1 = max(best_f1, dev_f1)
             best_em = max(best_em, dev_em)
 
-        fn = os.path.join(config.save_dir, "model.pt".format(iter+L))
+        fn = os.path.join(config.save_dir, "model.pt")
         torch.save(model, fn)
 
 
 def test_entry(config):
-    pass
+    with open(config.dev_eval_file, "r") as fh:
+        dev_eval_file = json.load(fh)
+    dev_dataset = SQuADDataset(config.dev_record_file, -1, config.batch_size)
+    fn = os.path.join(config.save_dir, "model.pt")
+    model = torch.load(fn)
+    test(model, dev_dataset, dev_eval_file)
 
 
 def main(_):

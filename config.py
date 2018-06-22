@@ -8,10 +8,10 @@ The content of this file is mostly copied from https://github.com/HKUST-KnowComp
 '''
 
 home = os.path.expanduser(".")
-train_file = os.path.join(home, "data", "squad", "train-v1.1.json")
-dev_file = os.path.join(home, "data", "squad", "dev-v1.1.json")
-test_file = os.path.join(home, "data", "squad", "dev-v1.1.json")
-glove_word_file = os.path.join(home, "data", "glove", "glove.840B.300d.txt")
+train_file = os.path.join(home, "../data/DRCD_train_joe.json")
+dev_file = os.path.join(home, "../data/DRCD_dev_joe.json")
+test_file = os.path.join(home, "../data/DRCD_dev_joe.json")
+glove_word_file = os.path.join(home, "../data/300d.trad_chinese.word_emb.npy")
 
 target_dir = "data"
 event_dir = "log"
@@ -20,8 +20,8 @@ answer_dir = "log"
 train_record_file = os.path.join(target_dir, "train.npz")
 dev_record_file = os.path.join(target_dir, "dev.npz")
 test_record_file = os.path.join(target_dir, "test.npz")
-word_emb_file = os.path.join(target_dir, "word_emb.json")
-char_emb_file = os.path.join(target_dir, "char_emb.json")
+word_emb_file = os.path.join(target_dir, "word_emb.pkl")
+char_emb_file = os.path.join(target_dir, "char_emb.pkl")
 train_eval = os.path.join(target_dir, "train_eval.json")
 dev_eval = os.path.join(target_dir, "dev_eval.json")
 test_eval = os.path.join(target_dir, "test_eval.json")
@@ -75,7 +75,7 @@ flags.DEFINE_integer("ques_limit", 50, "Limit length for question")
 flags.DEFINE_integer("ans_limit", 30, "Limit length for answers")
 # flags.DEFINE_integer("test_para_limit", 400, "Limit length for paragraph in test file")
 # flags.DEFINE_integer("test_ques_limit", 100, "Limit length for question in test file")
-flags.DEFINE_integer("char_limit", 16, "Limit length for character")
+flags.DEFINE_integer("char_limit", 6, "Limit length for character")
 flags.DEFINE_integer("word_count_limit", -1, "Min count for word")
 flags.DEFINE_integer("char_count_limit", -1, "Min count for char")
 
@@ -84,8 +84,8 @@ flags.DEFINE_integer("num_threads", 4, "Number of threads in input pipeline")
 flags.DEFINE_boolean("is_bucket", False, "build bucket batch iterator or not")
 flags.DEFINE_list("bucket_range", [40, 401, 40], "the range of bucket")
 
-flags.DEFINE_integer("batch_size", 16, "Batch size")
-flags.DEFINE_integer("num_steps", 90000, "Number of steps")
+flags.DEFINE_integer("batch_size", 12, "Batch size")
+flags.DEFINE_integer("num_steps", 240000, "Number of steps")
 flags.DEFINE_integer("checkpoint", 1000, "checkpoint to save and evaluate the model")
 flags.DEFINE_integer("period", 100, "period to save batch loss")
 flags.DEFINE_integer("val_num_batches", 150, "Number of batches to evaluate the model")
@@ -97,14 +97,14 @@ flags.DEFINE_integer("lr_warm_up_num", 1000, "Number of warm-up steps of learnin
 flags.DEFINE_float("decay", 0.9999, "Exponential moving average decay")
 # flags.DEFINE_float("l2_norm", 3e-7, "L2 norm scale")
 flags.DEFINE_integer("early_stop", 50, "Checkpoints for early stop")
-flags.DEFINE_integer("connector_dim", 128, "Dimension of connectors of each layer")
-flags.DEFINE_integer("num_heads", 8, "Number of heads in multi-head attention")
+flags.DEFINE_integer("connector_dim", 96, "Dimension of connectors of each layer")
+flags.DEFINE_integer("num_heads", 6, "Number of heads in multi-head attention")
 
 flags.DEFINE_string("train_log", "log/train.log", "Log for each checkpoint")
 flags.DEFINE_boolean("print_weight", False, "Print weights of some layers")
 
 # Extensions (Uncomment corresponding line in download.sh to download the required data)
-glove_char_file = os.path.join(home, "data", "glove", "glove.840B.300d-char.txt")
+glove_char_file = os.path.join(home, "../data/300d.trad_chinese.word_emb.npy")
 flags.DEFINE_string("glove_char_file", glove_char_file, "Glove character embedding")
 flags.DEFINE_boolean("pretrained_char", False, "Whether to use pretrained char embedding")
 
